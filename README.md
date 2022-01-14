@@ -1,0 +1,3 @@
+# DiscordBotEvent
+
+pip install discord
