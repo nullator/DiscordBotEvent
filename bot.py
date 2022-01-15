@@ -15,14 +15,17 @@ import os
 TOKEN = config.TOKEN
 prefix = "!"
 
-# Глобальная переменная, в которой храниться ссылка на сообщение о старте игры в крокодила
+# Переменная, в которой храниться ссылка на сообщение о старте игры в крокодила
 start_tread_message = {}
 
-# Глобальная переменная, в которой храниться ссылка на текущего ведущего, загадывающего слово в крокодиле
+# Переменная, в которой храниться ссылка на текущего ведущего, загадывающего слово в крокодиле
 crocodile_winner = {}
 
-# Глобальная переменная, в которой храниться ссылка на тред, в котором играют в крокодила
+# Переменная, в которой храниться ссылка на тред, в котором играют в крокодила
 crocodile_game_tread = {}
+
+# Переменная, в которой храниться scoreboard
+scoreboard = {}
 
 bot = discord.Client()
 
@@ -32,12 +35,130 @@ cursor = conn.cursor()
 cursor.execute("""CREATE TABLE IF NOT EXISTS crocodile(
    guildid INT,
    is_crocodile_run INT,
-   crocodile_word TEXT);
+   crocodile_word TEXT,
+   winner_counter INT,
+   reward INT,
+   counter_print INT);
 """)
 conn.commit()
 
 
-async def start_crocodile(sleep = 120):
+async def start_crocodile(guildid, sleep=12):
+    global scoreboard
+    # Флаг, который показывает что победителя нет. Без него иногда некорректно срабатывает определение победителя
+    cursor.execute(f'UPDATE crocodile SET winner_counter=0 where guildid={guildid}')
+    # Текущая награда за укаданное слово
+    cursor.execute(f'UPDATE crocodile SET reward=3 where guildid={guildid}')
+    conn.commit()
+    for row in cursor.execute(f"SELECT crocodile_word, counter_print FROM crocodile where guildid={guildid}"):
+        crocodile_word = row[0]
+        counter_print = row[1]
+        word = crocodile_word  # Нужно чтобы через время sleep проверить не изменилось ли слово
+
+        # Счетчик определяющий когда печатать scoreboard
+        counter_print -= 1
+        cursor.execute(f'UPDATE crocodile SET counter_print={counter_print} where guildid={guildid}')
+
+        # Если счетчик опустел, нужно напечатать scoreboard
+        if counter_print == 0:
+            scorelist = []
+            for us, sc in scoreboard[guildid].items():
+                scorelist.append([sc, us])
+            scorelist.sort(reverse=True)
+            await crocodile_game_tread[guildid].send(content="Текущие результаты:", file=discord.File(print_scoreboard(scorelist)))
+            cursor.execute(f'UPDATE crocodile SET counter_print=7 where guildid={guildid}')
+            conn.commit()
+        # Функция засыпает на время sleep, потом просыпается и проверяет нужна ли подсказка если слово не угадали
+        await asyncio.sleep(sleep)
+        if word == crocodile_word:
+            await crocodile_game_tread[guildid].send(f"Слово из  **{len(crocodile_word)}**  букв")
+            await first_hint(guildid)
+        else:
+            # слово угадали, ничего делать не нужно
+            pass
+
+
+async def first_hint(guildid, sleep=12):
+    # Награда уменьшается
+    cursor.execute(f'UPDATE crocodile SET reward=2 where guildid={guildid}')
+    conn.commit()
+    for row in cursor.execute(f"SELECT crocodile_word FROM crocodile where guildid={guildid}"):
+        crocodile_word = row[0]
+        word = crocodile_word  # Нужно чтобы через время sleep проверить не изменилось ли слово
+        await asyncio.sleep(sleep)
+        # Функция засыпает на время sleep, потом просыпается и проверяет нужна ли вторая подсказка
+        print(crocodile_word)
+        print(crocodile_word[0])
+        if word == crocodile_word:
+            await crocodile_game_tread[guildid].send(f"Первая буква  **{crocodile_word[0].upper()}**")
+            await second_hint(guildid)
+        else:
+            # слово угадали, ничего делать не нужно
+            pass
+
+
+async def second_hint(guildid, sleep=24):
+    global scoreboard
+    # Награда уменьшается
+    cursor.execute(f'UPDATE crocodile SET reward=1 where guildid={guildid}')
+    conn.commit()
+    for row in cursor.execute(f"SELECT crocodile_word FROM crocodile where guildid={guildid}"):
+        crocodile_word = row[0]
+        word = crocodile_word  # Нужно чтобы через время sleep проверить не изменилось ли слово
+        await asyncio.sleep(sleep)
+        if word == crocodile_word:
+            # Если не отгадали, команда игра ставится на паузу и ждёт нового ведущего, который запустит игру
+            await crocodile_game_tread[guildid].send(f"Слово  **{crocodile_word}**  никто не отгадал.\r\nМожно загадывать следующее слово командой **{prefix}крокодил**")
+            await crocodile_game_tread[guildid].send("Если не начать новую игру, чат автоматически удалится через 1 час")
+
+            # Данные обнуляются:
+            cursor.execute(f'UPDATE crocodile SET is_crocodile_run = 0 where guildid={guildid}')
+            cursor.execute(f'UPDATE crocodile SET crocodile_word = "" where guildid={guildid}')
+            conn.commit()
+            crocodile_winner[guildid] = 0
+
+            # Печатается текущий scoreboard
+            scorelist = []
+            try:
+                for us, sc in scoreboard[guildid].items():
+                    scorelist.append([sc, us])
+                scorelist.sort(reverse=True)
+                if len(scorelist) > 0:
+                    await crocodile_game_tread[guildid].send(content="Текущие результаты:", file=discord.File(print_scoreboard(scorelist)))
+            except:
+                pass
+            # Запускается таймер для удаления треда
+            await tread_del(guildid)
+        else:
+            # слово угадали, ничего делать не нужно
+            pass
+
+
+async def tread_del(guildid, sleep=36):
+    global scoreboard
+    await asyncio.sleep(sleep)
+    # Если прошло время sleep и никто не играет, то тред удаляется
+    for row in cursor.execute(f"SELECT is_crocodile_run FROM crocodile where guildid={guildid}"):
+        is_crocodile_run = row[0]
+        if is_crocodile_run == 0:
+            scorelist = []
+            for us, sc in scoreboard[guildid].items():
+                scorelist.append([sc, us])
+            scorelist.sort(reverse=True)
+            if len(scorelist) > 0:
+                await start_tread_message[guildid].reply(content="Поздравляю победителя!", file=discord.File(print_scoreboard(scorelist, True)))
+            await crocodile_game_tread[guildid].delete()
+
+            # Обнуляются данные
+            crocodile_game_tread[guildid] = 0
+            scoreboard[guildid] = {}
+            cursor.execute(f'UPDATE crocodile SET counter_print=5 where guildid={guildid}')
+        else:
+            # слово угадали, ничего делать не нужно
+            pass
+
+
+def print_scoreboard(scoreboard, final = False):
     pass
 
 
@@ -47,26 +168,30 @@ async def on_ready():
     print('------')
     # Формирование пустой базы данных для хранения данных по игре в крокодила
     for guild in bot.guilds:
-        values = (guild.id, 0, '')
+        values = (guild.id, 0, '', 0, 0, 7)
         cursor.execute(f"SELECT guildid FROM crocodile where guildid={guild.id}")
         if cursor.fetchone() == None:
-            cursor.execute("INSERT INTO crocodile VALUES(?, ?, ?);", values)
+            cursor.execute("INSERT INTO crocodile VALUES(?, ?, ?, ?, ?, ?);", values)
         else:
             cursor.execute(f'UPDATE crocodile SET is_crocodile_run = 0 where guildid={guild.id}')
             cursor.execute(f'UPDATE crocodile SET crocodile_word = "" where guildid={guild.id}')
+            cursor.execute(f'UPDATE crocodile SET winner_counter = 0 where guildid={guild.id}')
+            cursor.execute(f'UPDATE crocodile SET reward = 0 where guildid={guild.id}')
+            cursor.execute(f'UPDATE crocodile SET counter_print = 7 where guildid={guild.id}')
         conn.commit()
 
         # Инициируются переменные, не хранящиеся в БД
         crocodile_game_tread[guild.id] = 0
         start_tread_message[guild.id] = 0
         crocodile_winner[guild.id] = 0
+        scoreboard[guild.id] = 0
 
 
 @bot.event
 async def on_message(message):
     if message.content == prefix + "крокодил":
         # Из базы данных загружаются данные по текущему серверу
-        for row in cursor.execute(f"SELECT is_crocodile_run, crocodile_word, chan_id FROM crocodile where guildid={message.guild.id}"):
+        for row in cursor.execute(f"SELECT is_crocodile_run, crocodile_word FROM crocodile where guildid={message.guild.id}"):
             is_crocodile_run = row[0]
             crocodile_word = row[1]
             # Если игра вкрокодила не запущена:
@@ -83,6 +208,8 @@ async def on_message(message):
                     content = [x.strip() for x in content]
                     word_index = random.randint(0, len(content)-1)
                     crocodile_word = content[word_index]
+                    cursor.execute(f'UPDATE crocodile SET crocodile_word = "{crocodile_word}" where guildid={message.guild.id}')
+                    conn.commit()
                     with open('crocodile-dropped.txt', 'a', encoding="utf-8") as file:
                         file.write(content[word_index]+"\n")
                     content.pop(word_index)
@@ -95,8 +222,9 @@ async def on_message(message):
                         os.rename('crocodile-dropped.txt', 'crocodile.txt')
                         os.rename('crocodile.temp', 'crocodile-dropped.txt')
                     crocodile_winner[message.guild.id] = message.author
-                    is_crocodile = 1
-                    chan_id = tread
+                    cursor.execute(f'UPDATE crocodile SET is_crocodile_run = 1 where guildid={message.guild.id}')
+                    conn.commit()
+                    crocodile_game_tread[message.guild.id] = tread
                     await tread.send(f"**Правила:**\r\n"
                                      f"{message.author.mention} получил в ЛС загаданное слово и стал ведущим игры.\r\n"
                                      f"Ведущий должен объяснить загаданное слово, а остальные игроки его отгадать.\r\n"
@@ -105,13 +233,14 @@ async def on_message(message):
                                      f"За отгаданные слова начисляются очки, в конце будет подведён итог.")
                     await message.author.send(f"Загадано слово:\r\n"
                                               f"```css\r\n{crocodile_word}\r\n```")
-                    await start_crocodile()
+                    await start_crocodile(message.guild.id)
                 else:
                     with open("crocodile.txt", encoding="utf-8") as f:
                         content = f.readlines()
                     content = [x.strip() for x in content]
                     word_index = random.randint(0, len(content) - 1)
                     crocodile_word = content[word_index]
+                    cursor.execute(f'UPDATE crocodile SET crocodile_word = "{crocodile_word}" where guildid={message.guild.id}')
                     with open('crocodile-dropped.txt', 'a', encoding="utf-8") as file:
                         file.write(content[word_index] + "\n")
                     content.pop(word_index)
@@ -124,11 +253,12 @@ async def on_message(message):
                         os.rename('crocodile-dropped.txt', 'crocodile.txt')
                         os.rename('crocodile.temp', 'crocodile-dropped.txt')
                     crocodile_winner[message.guild.id] = message.author
-                    is_crocodile = 1
+                    cursor.execute(f'UPDATE crocodile SET is_crocodile_run = 1 where guildid={message.guild.id}')
+                    conn.commit()
                     await crocodile_game_tread[message.guild.id].send(f"{message.author.mention} объясняет слово, остальные должны угадать")
                     await message.author.send(f"Загадано слово:\r\n"
                                               f"```css\r\n{crocodile_word}\r\n```")
-                    await start_crocodile()
+                    await start_crocodile(message.guild.id)
 
             else:
                 pass
