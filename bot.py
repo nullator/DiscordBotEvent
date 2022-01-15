@@ -1,6 +1,5 @@
 # TODO добавить обработку сообщений в чате
 # TODO добавить обработку параметров при добавлении бота но новый сервер
-# TODO добавить формирование итогового scoreboard
 
 # Файл config.py в котором хранится токен бота в формате TOKEN = "..."
 import config
@@ -236,6 +235,57 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
+    # Проверка слова при игре в крокодил
+    message_content = str(message.content).lower()
+    for row in cursor.execute(f"SELECT is_crocodile_run, winner_counter, crocodile_word, reward FROM crocodile where guildid={message.guild.id}"):
+        is_crocodile_run = row[0]
+        winner_counter = row[1]
+        crocodile_word = row[2]
+        reward = row[3]
+        if is_crocodile_run == 1 and winner_counter == 0:
+            # Ведущий не должен отгадывать слово
+            if message.author == crocodile_winner[message.guild.id]:
+                pass
+            elif crocodile_word.lower() == message_content:
+                # Найден победитель
+                cursor.execute(f'UPDATE crocodile SET winner_counter = 1 where guildid={message.guild.id}')
+                conn.commit()
+                # if message.author.display_name in scoreboard[message.guild.id]:
+                #     scoreboard[message.guild.id][message.author.display_name] += 1
+                # else:
+                #     scoreboard[message.guild.id][message.author.display_name] = 1
+                crocodile_winner[message.guild.id] = message.author
+                if message.author.display_name in scoreboard[message.guild.id]:
+                    scoreboard[message.guild.id][message.author.display_name] += reward
+                else:
+                    scoreboard[message.guild.id][message.author.display_name] = reward
+                await message.channel.send(f"**{message.author.mention}** угадал слово **{crocodile_word}** и загадывает новое слово")
+                with open("crocodile.txt", encoding="utf-8") as f:
+                    content = f.readlines()
+                content = [x.strip() for x in content]
+                word_index = random.randint(0, len(content)-1)
+                crocodile_word = content[word_index]
+                cursor.execute(f'UPDATE crocodile SET crocodile_word = "{crocodile_word}" where guildid={message.guild.id}')
+                conn.commit()
+                with open('crocodile-dropped.txt', 'a', encoding="utf-8") as file:
+                    file.write(content[word_index]+"\n")
+                content.pop(word_index)
+                with open("crocodile.txt", "w", encoding="utf-8") as file:
+                    print(*content, file=file, sep="\n")
+                if len(content) == 0:
+                    with open('crocodile.txt', 'tw', encoding='utf-8') as f:
+                        pass
+                    os.rename('crocodile.txt', 'crocodile.temp')
+                    os.rename('crocodile-dropped.txt', 'crocodile.txt')
+                    os.rename('crocodile.temp', 'crocodile-dropped.txt')
+                await crocodile_winner[message.guild.id].send(f"Загадано слово:\r\n"
+                                          f"```css\r\n{crocodile_word}\r\n```")
+                await start_crocodile(message.guild.id)
+                pass
+            else:
+                # ничего не делать
+                pass
+
     if message.content == prefix + "крокодил":
         # Из базы данных загружаются данные по текущему серверу
         for row in cursor.execute(f"SELECT is_crocodile_run, crocodile_word FROM crocodile where guildid={message.guild.id}"):
