@@ -1,6 +1,5 @@
 # TODO добавить обработку сообщений в чате
 # TODO добавить обработку параметров при добавлении бота но новый сервер
-# TODO добавить игровую механику
 # TODO добавить формирование итогового scoreboard
 
 # Файл config.py в котором хранится токен бота в формате TOKEN = "..."
@@ -11,6 +10,7 @@ import discord
 import sqlite3
 import random
 import os
+from PIL import Image, ImageDraw, ImageFont
 
 TOKEN = config.TOKEN
 prefix = "!"
@@ -158,8 +158,55 @@ async def tread_del(guildid, sleep=36):
             pass
 
 
-def print_scoreboard(scoreboard, final = False):
-    pass
+def print_scoreboard(scoreboard, final=False):
+    new_im = Image.new('RGBA', (320, len(scoreboard) * 24 + 40))
+    crown = Image.open("img/crown.png")
+    idraw = ImageDraw.Draw(new_im)
+    font_1_2 = ImageFont.truetype("img/bahnschrift.ttf", size=18)
+    font_1_1 = ImageFont.truetype("img/bahnschrift.ttf", size=16)
+    idraw.rectangle((0, 0, 320, 34), fill='gray')
+    idraw.text((12, 10), "Игрок", (250, 250, 250), font=font_1_2)
+    idraw.text((260, 10), "Очки", (250, 250, 250), font=font_1_2)
+    x_offset = 33
+    y_offset = 12
+    for i in range(0, len(scoreboard)):
+        us = str(scoreboard[i][1])
+        sc = str(scoreboard[i][0])
+        print(len(us))
+        if len(us) > 24:
+            print(us)
+            us = us[:21]
+            us = us + "..."
+            print(us)
+        if i == 0:
+            col = (255, 220, 0)
+            if final:
+                y_offset = 44
+        elif i == 1:
+            col = (195, 80, 195)
+            y_offset = 12
+        elif i == 2:
+            col = (90, 100, 240)
+            y_offset = 12
+        else:
+            col = (250, 250, 250)
+            y_offset = 12
+        idraw.text((y_offset, x_offset + 10), us, col, font=font_1_1)
+        idraw.text((260, x_offset + 10), sc, col, font=font_1_1)
+        idraw.line((0, x_offset + 29, 320, x_offset + 29), fill=(250, 250, 250), width=1)
+        x_offset += 24
+    y = len(scoreboard) * 24 + 40
+    idraw.line((0, 0, 0, y), fill=(250, 250, 250), width=4)
+    idraw.line((0, 0, 320, 0), fill=(250, 250, 250), width=4)
+    idraw.line((0, 34, 320, 34), fill=(250, 250, 250), width=2)
+    idraw.line((248, 0, 248, y), fill=(250, 250, 250), width=2)
+    idraw.line((0, y - 2, 320, y - 2), fill=(250, 250, 250), width=4)
+    idraw.line((318, 0, 318, y), fill=(250, 250, 250), width=4)
+    filename = f'img/score.png'
+    if final:
+        new_im.paste(crown, (12, 39))
+    new_im.save(filename)
+    return filename
 
 
 @bot.event
