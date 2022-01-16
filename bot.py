@@ -3,7 +3,7 @@ import config
 
 import asyncio
 import discord
-import sqlite3
+import time
 import random
 import os
 from PIL import Image, ImageDraw, ImageFont
@@ -11,32 +11,45 @@ from PIL import Image, ImageDraw, ImageFont
 TOKEN = config.TOKEN
 prefix = "!"
 
+# Переменные для игры в крокодила:
 # Переменная, в которой храниться ссылка на сообщение о старте игры в крокодила
 start_tread_message = {}
-
 # Переменная, в которой храниться ссылка на текущего ведущего, загадывающего слово в крокодиле
 crocodile_winner = {}
-
 # Переменная, в которой храниться ссылка на тред, в котором играют в крокодила
 crocodile_game_tread = {}
-
 # Переменная, в которой храниться scoreboard
 scoreboard = {}
-
 # Флаг о том, что игра в крокодила уже запущена
 is_crocodile_run = {}
-
 # Загаданное слово
 crocodile_word = {}
-
 # Флаг о том, что победитель уже найден (нужен чтобы не было бага)
 winner_counter = {}
-
 # Текущая награда за угаданное слово
 reward = {}
-
 # Счетчик, который нужен чтобы раз в n ходов печатать промежуточную таблицу лидеров
 counter_print = {}
+
+# Переменные для отслеживания хоста AmongUs:
+# Хостер AmongUs
+hoster = {}
+# Флаг о том, что отслеживание хоста уже запущено
+is_host_progress = {}
+# Текущий статус в AmongUs
+now_game_status = {}
+# Этот параметр нужен чтобы отслеживать изменение статуса и обновлять его в embed
+last_game_status = {}
+# Ссылка на embed. Нужно чтобы потом его редактировать
+host_message = {}
+# Ссылка на сообщение, которым запущена команда. Нужно чтобы уведомлять о скором закрытии лобби
+start_host_message = {}
+# Этот флаг нужен, чтобы выводить уведомление о закрытии лобби только 1 раз и не спамить им
+warning_message = {}
+# Флаг о том, хостит ли сейчас хост своё лобби
+is_hosting = {}
+# Момент создания лобби
+start_hosting = {}
 
 intents = discord.Intents.all()
 bot = discord.Client(intents=intents)
@@ -200,12 +213,99 @@ def print_scoreboard(scoreboard, final=False):
     return filename
 
 
+async def game_iterator(host, guildid):
+    game_time = 0
+    while is_host_progress[guildid] == 1:
+        # Проверяется играет ли хост в амонг
+        try:
+            now_game_status[guildid] = host.activities[-1].details
+            if host.activities[-1].name != "Among Us":
+                now_game_status[guildid] = ""
+        except:
+            now_game_status[guildid] = ""
+
+        # Если не играет, то отслеживание прекращается через 10 секунд, все параметры обнуляются
+        if now_game_status[guildid] == "":
+            game_des = f"Не получается отследить статус лобби. Возможно хост вышел из игры."
+            embed = discord.Embed(description=game_des, color=0xda00e7)
+            embed.set_author(name=f"ඞ      Лобби {host.display_name}      ඞ")
+            await host_message[guildid].edit(embed=embed)
+            is_host_progress[guildid] = 0
+            warning_message[guildid] = 0
+
+            # Спит 10 секунд и завершает работу команды
+            await asyncio.sleep(10)
+            game_des = f"Работа команды завершена.\r\nДля повторного запуска нужно ввести команду !host"
+            embed = discord.Embed(description=game_des, color=0xda00e7)
+            embed.set_author(name=f"ඞ      Лобби {host.display_name}      ඞ")
+            await host_message[guildid].edit(embed=embed)
+
+        # Если с момента прошлой проверки статус не поменялся
+        elif last_game_status[guildid] == now_game_status[guildid]:
+            # Если в своем лобби, ножно првоерить как давно оно создано
+            if is_hosting[guildid] == 1:
+                # Проверяет как давно создано лобби
+                game_time = round(time.time()) - start_hosting[guildid]
+                game_des = f"{host.display_name} хостит лобби\r\n{sec_to_time(game_time)} | 10:30"
+                embed = discord.Embed(description=game_des, color=0xda00e7)
+                embed.set_author(name=f"ඞ      Лобби {host.display_name}      ඞ")
+                await host_message[guildid].edit(embed=embed)
+                # По опыту лобби закрывается в случайный момент, в среднем между 10:30 и 10:50
+                if game_time > 570 and warning_message[guildid] == 0:
+                    await start_host_message[guildid].reply("До закрытия лобби осталось меньше минуты!")
+                    warning_message[guildid] = 1
+            else:
+                pass
+        # Если предыдущий статус поменялся на "Hosting a game", значит хост создал лобби
+        # нужно иницииривать переменные, запомнить время старта лобби
+        elif now_game_status[guildid] == "Hosting a game":
+            is_hosting[guildid] = 1
+            start_hosting[guildid] = round(time.time())
+            last_game_status[guildid] = now_game_status[guildid]
+
+        # Если хост запустил игру из своего лобби, нужно обновить статус
+        elif now_game_status[guildid] == "Playing" and last_game_status[guildid] == "Hosting a game":
+            is_hosting[guildid] = 0
+            game_des = f"{host.display_name} запустил игру"
+            embed = discord.Embed(description=game_des, color=0xda00e7)
+            embed.set_author(name=f"ඞ      Лобби {host.display_name}      ඞ")
+            await host_message[guildid].edit(embed=embed)
+            last_game_status[guildid] = now_game_status[guildid]
+            warning_message[guildid] = 0
+
+        # Если хост вышел из своего лобби и находится в меню
+        elif now_game_status[guildid] != "Hosting a game" and last_game_status[guildid] == "Hosting a game":
+            is_hosting[guildid] = 0
+            game_des = f"{host.display_name} сейчас не хостит"
+            embed = discord.Embed(description=game_des, color=0xda00e7)
+            embed.set_author(name=f"ඞ      Лобби {host.display_name}      ඞ")
+            await host_message[guildid].edit(embed=embed)
+            last_game_status[guildid] = now_game_status[guildid]
+            warning_message[guildid] = 0
+        await asyncio.sleep(1)
+
+
+def sec_to_time(seconds):
+    hour = seconds // 3600
+    minuts = (seconds // 60) % 60
+    sec = seconds % 60
+    if minuts < 10:
+        minuts = f"0{minuts}"
+    if sec < 10:
+        sec = f"0{sec}"
+    if hour == 0:
+        return f"{minuts}:{sec}"
+    else:
+        return f"{hour}:{minuts}:{sec}"
+
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
     print('------')
     for guild in bot.guilds:
         # Инициируются переменные для каждлого сервера отдельно
+        # Для крокодила:
         crocodile_game_tread[guild.id] = 0
         start_tread_message[guild.id] = 0
         crocodile_winner[guild.id] = 0
@@ -215,11 +315,22 @@ async def on_ready():
         winner_counter[guild.id] = 0
         reward[guild.id] = 0
         counter_print[guild.id] = 7
+        # Для отслеживания хоста:
+        hoster[guild.id] = 0
+        is_host_progress[guild.id] = 0
+        now_game_status[guild.id] = 0
+        last_game_status[guild.id] = 0
+        host_message[guild.id] = 0
+        start_host_message[guild.id] = 0
+        warning_message[guild.id] = 0
+        is_hosting[guild.id] = 0
+        start_hosting[guild.id] = 0
 
 
 @bot.event
 async def on_guild_join(server):
     # Инициируются переменные для нового сервера
+    # Для крокодила:
     crocodile_game_tread[server.id] = 0
     start_tread_message[server.id] = 0
     crocodile_winner[server.id] = 0
@@ -229,6 +340,16 @@ async def on_guild_join(server):
     winner_counter[server.id] = 0
     reward[server.id] = 0
     counter_print[server.id] = 7
+    # Для отслеживания хоста:
+    hoster[server.id] = 0
+    is_host_progress[server.id] = 0
+    now_game_status[server.id] = 0
+    last_game_status[server.id] = 0
+    host_message[server.id] = 0
+    start_host_message[server.id] = 0
+    warning_message[server.id] = 0
+    is_hosting[server.id] = 0
+    start_hosting[server.id] = 0
 
     # Обратная связь
     nullator = await bot.fetch_user(270956993890484225)
@@ -353,9 +474,61 @@ async def on_message(message):
                 await message.author.send(f"Загадано слово:\r\n"
                                           f"```css\r\n{crocodile_word[message.guild.id]}\r\n```")
                 await start_crocodile(message.guild.id)
-
         else:
             pass
+
+    if message.content == prefix + "help":
+        pass
+
+    # Отслеживает хост AmongUs. Основная цель: знать когда хостер в лобби (чтобы зайти в игру)
+    # и сколько времени осталось до закрытия лобби.
+    if message.content == prefix + "хост" or message.content == prefix + "host":
+        lst = message.content.split()
+        # если ввести команду без параметров, то отслеживаешь своё лобби
+        if len(lst) == 1:
+            hoster[message.guild.id] = message.author
+
+        # можно отслеживать чужое лобби
+        if len(lst) == 2:
+            user_id = lst[1]
+            user_id = user_id[2:]
+            if len(lst[1]) > 3:
+                if user_id[0] == "!":
+                    user_id = user_id[1:]
+                user_id = user_id[:-1]
+                if user_id[0] == "&":
+                    user_id = user_id[1:]
+            # без такго перебора не получается получить доступ к member
+            for guild in bot.guilds:
+                if guild.id == message.guild.id:
+                    for member in guild.members:
+                        if int(member.id) == int(user_id):
+                            hoster[message.guild.id] = member
+        # Проверяется запущено ли уже отслеживание хоста
+        if is_host_progress[message.guild.id] == 1:
+            await message.channel.send(f"Команда уже запущена. Бот не умеет следить одновременно за несколькими хостами.")
+        # Проверяется статус игровой активности игрока в ДС
+        elif hoster[message.guild.id].activity is None:
+            await message.channel.send(f"Для работы команды нужно зайти в Among Us с ПК и включить в дискорде отображение статуса игровой активности")
+        elif hoster[message.guild.id].activities[-1].name != "Among Us":
+            await message.channel.send(f"Для работы команды нужно зайти в Among Us с ПК и включить в дискорде отображение статуса игровой активности")
+        else:
+            # Если все норально, запускается отслеживание
+            is_host_progress[message.guild.id] = 1
+            now_game_status[message.guild.id] = hoster[message.guild.id].activities[-1].details
+            last_game_status[message.guild.id] = now_game_status[message.guild.id]
+            if now_game_status[message.guild.id] == "Playing":
+                game_des = f"{hoster[message.guild.id].display_name} находится в запущенной игре\r\nЖду когда он станет хостом"
+            elif now_game_status[message.guild.id] == "Hosting a game":
+                game_des = f"{hoster[message.guild.id].display_name} хостит игру\r\n" \
+                           f"Недостаточно информации для ослеживания времени жизни лобби"
+            else:
+                game_des = f"{hoster[message.guild.id].display_name} находится в главном меню или чужом лобби\r\nЖду когда он станет хостом"
+            embed = discord.Embed(description=game_des, color=0xda00e7)
+            embed.set_author(name=f"ඞ      Лобби {hoster[message.guild.id].display_name}      ඞ")
+            host_message[message.guild.id] = await message.channel.send(embed=embed)
+            start_host_message[message.guild.id] = message
+            await game_iterator(hoster[message.guild.id], message.guild.id)
 
 
 bot.run(TOKEN)
