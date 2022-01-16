@@ -1,5 +1,3 @@
-# TODO добавить обработку параметров при добавлении бота но новый сервер
-
 # Файл config.py в котором хранится токен бота в формате TOKEN = "..."
 import config
 
@@ -43,7 +41,7 @@ counter_print = {}
 bot = discord.Client()
 
 
-async def start_crocodile(guildid, sleep=12):
+async def start_crocodile(guildid, sleep=120):
     global scoreboard
     global counter_print
 
@@ -71,7 +69,7 @@ async def start_crocodile(guildid, sleep=12):
         pass
 
 
-async def first_hint(guildid, sleep=12):
+async def first_hint(guildid, sleep=120):
     reward[guildid] = 2  # Награда уменьшается
     word = crocodile_word[guildid]  # Нужно чтобы через время sleep проверить не изменилось ли слово
     await asyncio.sleep(sleep)
@@ -85,10 +83,10 @@ async def first_hint(guildid, sleep=12):
         pass
 
 
-async def second_hint(guildid, sleep=24):
+async def second_hint(guildid, sleep=240):
     global scoreboard
     # Таймер до удаления треда, секунды
-    sleep_to_delete = 36
+    sleep_to_delete = 3600
 
     reward[guildid] = 1  # Награда уменьшается до минимальной
     word = crocodile_word[guildid]  # Нужно чтобы через время sleep проверить не изменилось ли слово
@@ -252,9 +250,9 @@ async def on_message(message):
 
         if is_crocodile_run[message.guild.id] == 1 and winner_counter[message.guild.id] == 0:
             # Ведущий не должен отгадывать слово
-            # if message.author == crocodile_winner[message.guild.id]:
-            #     pass
-            if crocodile_word[message.guild.id].lower() == message_content:
+            if message.author == crocodile_winner[message.guild.id]:
+                pass
+            elif crocodile_word[message.guild.id].lower() == message_content:
                 # Найден победитель
                 winner_counter[message.guild.id] = 1
                 crocodile_winner[message.guild.id] = message.author
