@@ -1,4 +1,3 @@
-# TODO добавить обработку сообщений в чате
 # TODO добавить обработку параметров при добавлении бота но новый сервер
 
 # Файл config.py в котором хранится токен бота в формате TOKEN = "..."
@@ -217,6 +216,24 @@ async def on_ready():
         winner_counter[guild.id] = 0
         reward[guild.id] = 0
         counter_print[guild.id] = 7
+
+
+@bot.event
+async def on_guild_join(server):
+    # Инициируются переменные для нового сервера
+    crocodile_game_tread[server.id] = 0
+    start_tread_message[server.id] = 0
+    crocodile_winner[server.id] = 0
+    scoreboard[server.id] = {}
+    is_crocodile_run[server.id] = 0
+    crocodile_word[server.id] = ""
+    winner_counter[server.id] = 0
+    reward[server.id] = 0
+    counter_print[server.id] = 7
+
+    # Обратная связь
+    nullator = await bot.fetch_user(270956993890484225)
+    await nullator.send(f"Бот добавлен на сервер {server.name}")
 
 
 @bot.event
