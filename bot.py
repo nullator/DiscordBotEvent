@@ -38,7 +38,8 @@ reward = {}
 # Счетчик, который нужен чтобы раз в n ходов печатать промежуточную таблицу лидеров
 counter_print = {}
 
-bot = discord.Client()
+intents = discord.Intents.all()
+bot = discord.Client(intents=intents)
 
 
 async def start_crocodile(guildid, sleep=120):
