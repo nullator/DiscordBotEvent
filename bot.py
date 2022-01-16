@@ -235,7 +235,7 @@ async def game_iterator(host, guildid):
 
             # Спит 10 секунд и завершает работу команды
             await asyncio.sleep(10)
-            game_des = f"Работа команды завершена.\r\nДля повторного запуска нужно ввести команду !host"
+            game_des = f"Работа команды завершена.\r\nДля повторного запуска нужно ввести команду {prefix}host"
             embed = discord.Embed(description=game_des, color=0xda00e7)
             embed.set_author(name=f"ඞ      Лобби {host.display_name}      ඞ")
             await host_message[guildid].edit(embed=embed)
@@ -478,7 +478,9 @@ async def on_message(message):
             pass
 
     if message.content == prefix + "help":
-        pass
+        await message.channel.send(f"Доступные команды:\r\n"
+                                  f"```css\r\n{prefix}крокодил - старт игры в крокодила\r\n```"
+                                  f"```css\r\n{prefix}host - отслеживание хоста игры AmongUs\r\n```" )
 
     # Отслеживает хост AmongUs. Основная цель: знать когда хостер в лобби (чтобы зайти в игру)
     # и сколько времени осталось до закрытия лобби.
